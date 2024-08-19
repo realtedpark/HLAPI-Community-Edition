@@ -401,58 +401,69 @@ namespace UnityEngine.Networking
 
         static internal void InternalUpdate()
         {
-            if (s_ServerHostId == -1)
-                return;
+            // ondrej_mocny: support for overriding NetworkTransport functionality
+            /*if (m_ServerHostId == -1)
+                return;*/
 
-            int connectionId;
-            int channelId;
-            int receivedSize;
-            byte error;
-
-            var networkEvent = NetworkEventType.DataEvent;
-
-            do
+            // ondrej_mocny: support for overriding NetworkTransport functionality
+            if (NetworkConnection.OnPumpServerPackets != null)
             {
-                networkEvent = NetworkTransport.ReceiveFromHost(s_ServerHostId, out connectionId, out channelId, s_MsgBuffer, (ushort)s_MsgBuffer.Length, out receivedSize, out error);
-                if (networkEvent != NetworkEventType.Nothing)
-                {
-                    if (LogFilter.logDev) { Debug.Log("Server event: host=" + s_ServerHostId + " event=" + networkEvent + " error=" + error); }
-                }
-
-                switch (networkEvent)
-                {
-                    case NetworkEventType.ConnectEvent:
-                    {
-                        HandleConnect(connectionId, error);
-                        break;
-                    }
-                    case NetworkEventType.DataEvent:
-                    {
-                        // create a buffer with exactly 'receivedSize' size for the handlers so we don't need to read
-                        // a size header (saves bandwidth)
-                        byte[] data = new byte[receivedSize];
-                        Array.Copy(s_MsgBuffer, data, receivedSize);
-
-                        HandleData(connectionId, data, channelId, error);
-                        break;
-                    }
-                    case NetworkEventType.DisconnectEvent:
-                    {
-                        HandleDisconnect(connectionId, error);
-                        break;
-                    }
-                    case NetworkEventType.Nothing:
-                    {
-                        break;
-                    }
-                    default:
-                    {
-                        if (LogFilter.logError) { Debug.LogError("Unknown network message type received: " + networkEvent); }
-                        break;
-                    }
-                }
+                NetworkConnection.OnPumpServerPackets.Invoke();
             }
-            while (networkEvent != NetworkEventType.Nothing);
+            // ondrej_mocny: support for overriding NetworkTransport functionality
+            else if (s_ServerHostId != -1)
+            {
+                int connectionId;
+                int channelId;
+                int receivedSize;
+                byte error;
+
+                var networkEvent = NetworkEventType.DataEvent;
+
+                do
+                {
+                    networkEvent = NetworkTransport.ReceiveFromHost(s_ServerHostId, out connectionId, out channelId, s_MsgBuffer, (ushort)s_MsgBuffer.Length, out receivedSize, out error);
+                    if (networkEvent != NetworkEventType.Nothing)
+                    {
+                        if (LogFilter.logDev) { Debug.Log("Server event: host=" + s_ServerHostId + " event=" + networkEvent + " error=" + error); }
+                    }
+
+                    switch (networkEvent)
+                    {
+                        case NetworkEventType.ConnectEvent:
+                            {
+                                HandleConnect(connectionId, error);
+                                break;
+                            }
+                        case NetworkEventType.DataEvent:
+                            {
+                                // create a buffer with exactly 'receivedSize' size for the handlers so we don't need to read
+                                // a size header (saves bandwidth)
+                                byte[] data = new byte[receivedSize];
+                                Array.Copy(s_MsgBuffer, data, receivedSize);
+
+                                HandleData(connectionId, data, channelId, error);
+                                break;
+                            }
+                        case NetworkEventType.DisconnectEvent:
+                            {
+                                HandleDisconnect(connectionId, error);
+                                break;
+                            }
+                        case NetworkEventType.Nothing:
+                            {
+                                break;
+                            }
+                        default:
+                            {
+                                if (LogFilter.logError) { Debug.LogError("Unknown network message type received: " + networkEvent); }
+                                break;
+                            }
+                    }
+                }
+                while (networkEvent != NetworkEventType.Nothing);
+
+            }
 
             UpdateServerObjects();
         }

@@ -32,6 +32,10 @@ namespace UnityEngine.Networking
         public bool logNetworkMessages = false;
         public bool isConnected { get { return hostId != -1; }}
 
+        // ondrej_mocny: support for overriding NetworkTransport functionality
+        public delegate void PumpServerPacketsDelegate();
+        public static PumpServerPacketsDelegate OnPumpServerPackets; // called on server to process incoming packets
+
         public NetworkError lastError { get { return error; } internal set { error = value; } }
 
         public virtual void Initialize(string networkAddress, int networkHostId, int networkConnectionId, HostTopology hostTopology)
@@ -380,6 +384,13 @@ namespace UnityEngine.Networking
                 }
                 pauseQueue = null;
             }
+        }
+
+        // ondrej_mocny: support for overriding NetworkTransport functionality
+        // Called from update cycle. Return true if some processing was done and should not continue by default path.
+        public virtual bool PumpClientPackets()
+        {
+            return false;
         }
     }
 }

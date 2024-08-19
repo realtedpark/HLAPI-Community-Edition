@@ -97,6 +97,13 @@ namespace UnityEngine.Networking
             m_MsgBuffer = new byte[NetworkMessage.MaxMessageSize];
             AddClient(this);
 
+            // ondrej_mocny
+            SetExternalConnection(conn);
+        }
+
+        // ondrej_mocny
+        public void SetExternalConnection(NetworkConnection conn)
+        {
             SetActive(true);
             m_Connection = conn;
             m_AsyncConnect = ConnectState.Connected;
@@ -338,10 +345,11 @@ namespace UnityEngine.Networking
 
         internal virtual void Update()
         {
-            if (m_ClientId == -1)
+            // ondrej_mocny: support for overriding NetworkTransport functionality
+            /*if (m_ClientId == -1)
             {
                 return;
-            }
+            }*/
 
             switch (m_AsyncConnect)
             {
@@ -362,102 +370,106 @@ namespace UnityEngine.Networking
 
                 case ConnectState.Connecting:
                 case ConnectState.Connected:
-                {
-                    break;
-                }
+                    {
+                        break;
+                    }
             }
 
-            int numEvents = 0;
-            NetworkEventType networkEvent;
-            do
+            // ondrej_mocny: support for overriding NetworkTransport functionality
+            if ((m_Connection == null || !m_Connection.PumpClientPackets()) && m_ClientId != -1)
             {
-                int connectionId;
-                int channelId;
-                int receivedSize;
-                byte error;
-
-                networkEvent = NetworkTransport.ReceiveFromHost(m_ClientId, out connectionId, out channelId, m_MsgBuffer, (ushort)m_MsgBuffer.Length, out receivedSize, out error);
-                if (m_Connection != null) m_Connection.lastError = (NetworkError)error;
-
-                if (networkEvent != NetworkEventType.Nothing)
+                int numEvents = 0;
+                NetworkEventType networkEvent;
+                do
                 {
-                    if (LogFilter.logDev) { Debug.Log("Client event: host=" + m_ClientId + " event=" + networkEvent + " error=" + error); }
-                }
+                    int connectionId;
+                    int channelId;
+                    int receivedSize;
+                    byte error;
 
-                switch (networkEvent)
-                {
-                    case NetworkEventType.ConnectEvent:
+                    networkEvent = NetworkTransport.ReceiveFromHost(m_ClientId, out connectionId, out channelId, m_MsgBuffer, (ushort)m_MsgBuffer.Length, out receivedSize, out error);
+                    if (m_Connection != null) m_Connection.lastError = (NetworkError)error;
 
-                        if (LogFilter.logDebug) { Debug.Log("Client connected"); }
+                    if (networkEvent != NetworkEventType.Nothing)
+                    {
+                        if (LogFilter.logDev) { Debug.Log("Client event: host=" + m_ClientId + " event=" + networkEvent + " error=" + error); }
+                    }
 
-                        if (error != 0)
-                        {
-                            GenerateConnectError(error);
-                            return;
-                        }
+                    switch (networkEvent)
+                    {
+                        case NetworkEventType.ConnectEvent:
 
-                        m_AsyncConnect = ConnectState.Connected;
-                        m_Connection.InvokeHandlerNoData((short)MsgType.Connect);
-                        break;
+                            if (LogFilter.logDebug) { Debug.Log("Client connected"); }
 
-                    case NetworkEventType.DataEvent:
-                        if (error != 0)
-                        {
-                            GenerateDataError(error);
-                            return;
-                        }
+                            if (error != 0)
+                            {
+                                GenerateConnectError(error);
+                                return;
+                            }
+
+                            m_AsyncConnect = ConnectState.Connected;
+                            m_Connection.InvokeHandlerNoData((short)MsgType.Connect);
+                            break;
+
+                        case NetworkEventType.DataEvent:
+                            if (error != 0)
+                            {
+                                GenerateDataError(error);
+                                return;
+                            }
 
 #if UNITY_EDITOR
                         UnityEditor.NetworkDetailStats.IncrementStat(
                         UnityEditor.NetworkDetailStats.NetworkDirection.Incoming,
                         (short)MsgType.LLAPIMsg, "msg", 1);
 #endif
-                        // create a buffer with exactly 'receivedSize' size for the handlers so we don't need to read
-                        // a size header (saves bandwidth)
-                        byte[] data = new byte[receivedSize];
-                        Array.Copy(m_MsgBuffer, data, receivedSize);
+                            // create a buffer with exactly 'receivedSize' size for the handlers so we don't need to read
+                            // a size header (saves bandwidth)
+                            byte[] data = new byte[receivedSize];
+                            Array.Copy(m_MsgBuffer, data, receivedSize);
 
-                        m_Connection.TransportReceive(data, channelId);
-                        break;
+                            m_Connection.TransportReceive(data, channelId);
+                            break;
 
-                    case NetworkEventType.DisconnectEvent:
-                        if (LogFilter.logDebug) { Debug.Log("Client disconnected"); }
+                        case NetworkEventType.DisconnectEvent:
+                            if (LogFilter.logDebug) { Debug.Log("Client disconnected"); }
 
-                        m_AsyncConnect = ConnectState.Disconnected;
+                            m_AsyncConnect = ConnectState.Disconnected;
 
-                        if (error != 0)
-                        {
-                            if ((NetworkError)error != NetworkError.Timeout)
+                            if (error != 0)
                             {
-                                GenerateDisconnectError(error);
+                                if ((NetworkError)error != NetworkError.Timeout)
+                                {
+                                    GenerateDisconnectError(error);
+                                }
                             }
-                        }
-                        ClientScene.HandleClientDisconnect(m_Connection);
-                        if (m_Connection != null)
-                        {
-                            m_Connection.InvokeHandlerNoData((short)MsgType.Disconnect);
-                        }
-                        break;
+                            ClientScene.HandleClientDisconnect(m_Connection);
+                            if (m_Connection != null)
+                            {
+                                m_Connection.InvokeHandlerNoData((short)MsgType.Disconnect);
+                            }
+                            break;
 
-                    case NetworkEventType.Nothing:
-                        break;
+                        case NetworkEventType.Nothing:
+                            break;
 
-                    default:
-                        if (LogFilter.logError) { Debug.LogError("Unknown network message type received: " + networkEvent); }
-                        break;
-                }
+                        default:
+                            if (LogFilter.logError) { Debug.LogError("Unknown network message type received: " + networkEvent); }
+                            break;
+                    }
 
-                if (++numEvents >= k_MaxEventsPerFrame)
-                {
-                    if (LogFilter.logDebug) { Debug.Log("MaxEventsPerFrame hit (" + k_MaxEventsPerFrame + ")"); }
-                    break;
+                    if (++numEvents >= k_MaxEventsPerFrame)
+                    {
+                        if (LogFilter.logDebug) { Debug.Log("MaxEventsPerFrame hit (" + k_MaxEventsPerFrame + ")"); }
+                        break;
+                    }
+                    if (m_ClientId == -1)
+                    {
+                        break;
+                    }
                 }
-                if (m_ClientId == -1)
-                {
-                    break;
-                }
+                while (networkEvent != NetworkEventType.Nothing);
             }
-            while (networkEvent != NetworkEventType.Nothing);
         }
 
         void GenerateConnectError(byte error)
